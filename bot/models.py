@@ -13,21 +13,6 @@ class User:
         if user_id not in self.users:
             self.users[user_id] = []
 
-    def get_user_tasks(self, user_id):
-        return self.users[user_id]
-
-    def add_task(self, user_id, task):
-        self.users[user_id].append(task)
-
-    def delete_task(self, user_id, task_id):
-        self.users[user_id].remove(task_id)
-
-    def mark_task_done(self, user_id, task_id):
-        for task in self.users[user_id]:
-            if task['id'] == task_id:
-                task['status'] = 'done'
-                return
-
 
 class Task:
     def __init__(self):
@@ -115,19 +100,6 @@ class Task:
         conn.close()
         return True
 
-    def update_task_status(self, user_id, task_id, new_status):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            UPDATE tasks SET
-            status = ?
-            WHERE id = ? AND user_id = ?
-        """, (new_status, task_id, user_id))
-        conn.commit()
-        conn.close()
-        return True
-
     def delete_task(self, user_id, task_id):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -145,7 +117,7 @@ class Task:
 
         cursor.execute("""
             UPDATE tasks SET
-            status = 'выполнено'
+            status = 'Выполнено'
             WHERE id = ? AND user_id = ?
         """, (task_id, user_id))
         conn.commit()
