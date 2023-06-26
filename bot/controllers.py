@@ -13,7 +13,6 @@ load_dotenv()
 
 
 class TaskCommandController:
-    # Хранилище состояний для хендлера
     (
         TITLE, DESCRIPTION, DEADLINE,
         STATUS, DELETION, ADD, CANCEL,
@@ -23,15 +22,27 @@ class TaskCommandController:
         self.model = Task()
         self.current_task = {}
 
-    # Инициирует диалог с ботом
-    def start(self, update: Update, context: CallbackContext):
-        chat = update.effective_chat
-        name = update.message.chat.first_name
+    def get_button_list(self, tasks):
         button_list = [
             InlineKeyboardButton("Add", callback_data='add_task'),
             InlineKeyboardButton("List", callback_data='list_task'),
         ]
+
+        if tasks:
+            button_list.extend([
+                InlineKeyboardButton("Done", callback_data='done_task'),
+                InlineKeyboardButton("Delete", callback_data='delete_task'),
+            ])
+
+        return button_list
+
+    def start(self, update: Update, context: CallbackContext):
+        chat = update.effective_chat
+        name = update.message.chat.first_name
+        tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
+        button_list = self.get_button_list(tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
+
         context.bot.send_message(
             chat_id=chat.id,
             text=f"Приветствую, {name}! Я - бот-ассистент."
@@ -63,12 +74,8 @@ class TaskCommandController:
     # Отменяет процесс создания задачи
     def cancel(self, update: Update, context: CallbackContext):
         chat = update.effective_chat
-        button_list = [
-            InlineKeyboardButton("Add", callback_data='add_task'),
-            InlineKeyboardButton("Done", callback_data='done_task'),
-            InlineKeyboardButton("Delete", callback_data='delete_task'),
-            InlineKeyboardButton("List", callback_data='list_task'),
-        ]
+        tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
+        button_list = self.get_button_list(tasks=tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
         context.bot.send_message(
             chat_id=chat.id,
@@ -90,7 +97,9 @@ class TaskCommandController:
         reply_markup = InlineKeyboardMarkup([button_list])
 
         update.callback_query.message.reply_text(
-            "Выберите:", reply_markup=reply_markup
+            f"{format_task_list(tasks)}"
+            "Выберите:",
+            reply_markup=reply_markup
         )
 
         return self.STATUS
@@ -108,7 +117,9 @@ class TaskCommandController:
         reply_markup = InlineKeyboardMarkup([button_list])
 
         update.callback_query.message.reply_text(
-            "Выберите:", reply_markup=reply_markup
+            f"{format_task_list(tasks)}"
+            "Выберите:",
+            reply_markup=reply_markup
         )
 
         return self.DELETION
@@ -116,14 +127,10 @@ class TaskCommandController:
     # Выводит список всех задач
     def list(self, update: Update, context: CallbackContext):
         chat = update.effective_chat
-        button_list = [
-            InlineKeyboardButton("Add", callback_data='add_task'),
-            InlineKeyboardButton("Done", callback_data='done_task'),
-            InlineKeyboardButton("Delete", callback_data='delete_task'),
-            InlineKeyboardButton("List", callback_data='list_task'),
-        ]
+        user_id = update.effective_user.id
+        tasks = self.model.get_all_tasks(user_id=user_id)
+        button_list = self.get_button_list(tasks=tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
-        user_id = update.callback_query.from_user.id
         tasks = self.model.get_all_tasks(user_id)
         if tasks:
             context.bot.send_message(
@@ -132,9 +139,10 @@ class TaskCommandController:
                 reply_markup=reply_markup
             )
         else:
-            return context.bot.send_message(
+            context.bot.send_message(
                 chat_id=chat.id,
-                text="У вас нет активных задач.",
+                text="У вас нет активных задач.\n\n"
+                     "Меню:",
                 reply_markup=reply_markup
             )
 
@@ -165,13 +173,7 @@ class TaskConversationHandler:
     def task_deadline(self, update: Update, context: CallbackContext):
         self.current_task['user_id'] = update.message.from_user['id']
         chat = update.effective_chat
-        button_list = [
-            InlineKeyboardButton("Add", callback_data='add_task'),
-            InlineKeyboardButton("Done", callback_data='done_task'),
-            InlineKeyboardButton("Delete", callback_data='delete_task'),
-            InlineKeyboardButton("List", callback_data='list_task'),
-        ]
-        reply_markup = InlineKeyboardMarkup([button_list])
+
         self.current_task['deadline'] = update.message.text
         self.model.add_task(
             self.current_task['user_id'],
@@ -179,6 +181,9 @@ class TaskConversationHandler:
             self.current_task['description'],
             self.current_task['deadline']
         )
+        tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
+        button_list = self.task_command_controller.get_button_list(tasks=tasks)
+        reply_markup = InlineKeyboardMarkup([button_list])
         context.bot.send_message(
             chat_id=chat.id,
             text='Задача успешно добавлена!',
@@ -192,18 +197,6 @@ class TaskConversationHandler:
         task_id = query.data.split('_')[1]
 
         task = self.model.get_task(user_id=user_id, task_id=task_id)
-
-        button_list = [
-            InlineKeyboardButton("Add", callback_data='add_task'),
-            InlineKeyboardButton("Done", callback_data='done_task'),
-            InlineKeyboardButton("Delete", callback_data='delete_task'),
-            InlineKeyboardButton("List", callback_data='list_task'),
-        ]
-        reply_markup = InlineKeyboardMarkup([button_list])
-        context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            reply_markup=reply_markup
-        )
 
         if task and task[6] == 'Выполнено':
             query.answer()
@@ -227,7 +220,14 @@ class TaskConversationHandler:
                 "Такой задачи не существует! "
                 "Пожалуйста, предоставьте идентификатор задачи."
             )
-
+        tasks = self.model.get_all_tasks(user_id=user_id)
+        button_list = self.task_command_controller.get_button_list(tasks=tasks)
+        reply_markup = InlineKeyboardMarkup([button_list])
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Меню:",
+            reply_markup=reply_markup
+        )
         return ConversationHandler.END
 
     def task_delete(self, update: Update, context: CallbackContext):
@@ -248,6 +248,14 @@ class TaskConversationHandler:
                 "Пожалуйста, предоставьте идентификатор задачи."
             )
 
+        tasks = self.model.get_all_tasks(user_id=user_id)
+        button_list = self.task_command_controller.get_button_list(tasks=tasks)
+        reply_markup = InlineKeyboardMarkup([button_list])
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Меню:",
+            reply_markup=reply_markup
+        )
         return ConversationHandler.END
 
     def get_conversation_handler(self):
