@@ -13,6 +13,7 @@ load_dotenv()
 
 
 class TaskCommandController:
+    # Хранилище состояний для хендлера
     (
         TITLE, DESCRIPTION, DEADLINE,
         STATUS, DELETION, ADD,
@@ -23,11 +24,15 @@ class TaskCommandController:
         self.current_task = {}
 
     def get_button_list(self, tasks):
+        """
+        Кнопки меню
+        """
         button_list = [
             InlineKeyboardButton("Add", callback_data='add_task'),
             InlineKeyboardButton("List", callback_data='list_task'),
         ]
 
+        # Показывает кнопки отметок и удаления только при наличии задач
         if tasks:
             button_list.extend([
                 InlineKeyboardButton("Done", callback_data='done_task'),
@@ -37,6 +42,9 @@ class TaskCommandController:
         return button_list
 
     def send_message_with_markup(self, context, chat_id, text, tasks):
+        """
+        Шаблон отправки ответного сообщения
+        """
         button_list = self.get_button_list(tasks=tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
         context.bot.send_message(
@@ -46,6 +54,9 @@ class TaskCommandController:
         )
 
     def start(self, update: Update, context: CallbackContext):
+        """
+        Инициирует чат с полльзователем
+        """
         chat = update.effective_chat
         name = update.message.chat.first_name
         tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
@@ -61,12 +72,14 @@ class TaskCommandController:
     def add(self, update: Update, context: CallbackContext):
         user_id = update.callback_query.from_user.id
 
+        # Ограничение на количество одновременных задач - 10
         if len(self.model.get_all_tasks(user_id)) < 10:
             self.current_task['user_id'] = user_id
 
             update.callback_query.message.reply_text(
                 'Введите заголовок задачи',
             )
+            # Убирает меню и избегает его дублирования
             update.callback_query.edit_message_reply_markup(reply_markup=None)
 
             return self.TITLE
@@ -76,6 +89,9 @@ class TaskCommandController:
             )
 
     def done(self, update: Update, context: CallbackContext):
+        """
+        Отмечает задачу как выполненную
+        """
         query = update.callback_query
         user_id = query.from_user.id
 
@@ -97,6 +113,9 @@ class TaskCommandController:
         return self.STATUS
 
     def delete(self, update: Update, context: CallbackContext):
+        """
+        Удаляет задачу по индексу
+        """
         query = update.callback_query
         user_id = query.from_user.id
 
@@ -116,6 +135,9 @@ class TaskCommandController:
         return self.DELETION
 
     def list(self, update: Update, context: CallbackContext):
+        """
+        Выводит список всех активных задач
+        """
         query = update.callback_query
         user_id = query.from_user.id
         tasks = self.model.get_all_tasks(user_id=user_id)
@@ -146,16 +168,25 @@ class TaskConversationHandler:
         self.current_task = {}
 
     def task_name(self, update: Update, context: CallbackContext):
+        """
+        Обрабатывает ввод имени задачи.
+        """
         self.current_task['title'] = update.message.text
         update.message.reply_text('Введите описание задачи')
         return self.task_command_controller.DESCRIPTION
 
     def task_description(self, update: Update, context: CallbackContext):
+        """
+        Обрабатывает ввод описания задачи.
+        """
         self.current_task['description'] = update.message.text
         update.message.reply_text('Укажите дедлайн задачи')
         return self.task_command_controller.DEADLINE
 
     def task_deadline(self, update: Update, context: CallbackContext):
+        """
+        Обрабатывает ввод дедлайна задачи.
+        """
         self.current_task['user_id'] = update.message.from_user['id']
         chat = update.effective_chat
 
@@ -177,6 +208,10 @@ class TaskConversationHandler:
         return ConversationHandler.END
 
     def task_done(self, update: Update, context: CallbackContext):
+        """
+        Обрабатывает ввод индентификатора задачи
+         и помечает задачи как выполненную
+        """
         query = update.callback_query
         user_id = update.effective_user['id']
         task_id = query.data.split('_')[1]
@@ -194,7 +229,10 @@ class TaskConversationHandler:
                 user_id=user_id,
                 task_id=task_id
             )
+
             query.answer()
+
+            # Убирает меню и избегает его дублирования
             query.edit_message_reply_markup(reply_markup=None)
             query.edit_message_text(
                 "Достижение: Задача помечена как 'Выполнена'!\n\n"
@@ -206,6 +244,7 @@ class TaskConversationHandler:
                 "Такой задачи не существует! "
                 "Пожалуйста, предоставьте идентификатор задачи."
             )
+
         tasks = self.model.get_all_tasks(user_id=user_id)
         button_list = self.task_command_controller.get_button_list(tasks=tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
@@ -214,9 +253,13 @@ class TaskConversationHandler:
             text="Меню:",
             reply_markup=reply_markup
         )
+
         return ConversationHandler.END
 
     def task_delete(self, update: Update, context: CallbackContext):
+        """
+        Обрабатывает ввод индентификатора задачи и удаляет ее
+        """
         query = update.callback_query
         user_id = update.effective_user['id']
         task_id = query.data.split('_')[1]
@@ -245,6 +288,9 @@ class TaskConversationHandler:
         return ConversationHandler.END
 
     def get_conversation_handler(self):
+        """
+        Занимается обработкой и распределением логики команд
+        """
         return ConversationHandler(
             entry_points=[
                 CommandHandler(
