@@ -19,10 +19,6 @@ def main():
 
     dp.add_handler(conv_handler)
     dp.add_handler(CommandHandler('start', task_command_controller.start))
-    dp.add_handler(CommandHandler('add', task_command_controller.add))
-    dp.add_handler(CommandHandler('done', task_command_controller.done))
-    dp.add_handler(CommandHandler('delete', task_command_controller.delete))
-    dp.add_handler(CommandHandler('list', task_command_controller.list))
 
     updater.start_polling()
     updater.idle()

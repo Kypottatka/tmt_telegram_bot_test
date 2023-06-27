@@ -1,5 +1,5 @@
 from telegram import (
-    Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     CommandHandler, CallbackContext, ConversationHandler, MessageHandler,
@@ -15,8 +15,8 @@ load_dotenv()
 class TaskCommandController:
     (
         TITLE, DESCRIPTION, DEADLINE,
-        STATUS, DELETION, ADD, CANCEL,
-    ) = range(7)
+        STATUS, DELETION, ADD,
+    ) = range(6)
 
     def __init__(self):
         self.model = Task()
@@ -36,34 +36,38 @@ class TaskCommandController:
 
         return button_list
 
+    def send_message_with_markup(self, context, chat_id, text, tasks):
+        button_list = self.get_button_list(tasks=tasks)
+        reply_markup = InlineKeyboardMarkup([button_list])
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup
+        )
+
     def start(self, update: Update, context: CallbackContext):
         chat = update.effective_chat
         name = update.message.chat.first_name
         tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
-        button_list = self.get_button_list(tasks)
-        reply_markup = InlineKeyboardMarkup([button_list])
-
-        context.bot.send_message(
-            chat_id=chat.id,
-            text=f"Приветствую, {name}! Я - бот-ассистент."
-                 "Моя цель помочь вам достичь ваших целей "
-                 "при помощи создания списка задач.",
-            reply_markup=reply_markup
+        self.send_message_with_markup(
+            context,
+            chat.id,
+            f"Приветствую, {name}! Я - бот-ассистент."
+            "Моя цель помочь вам достичь ваших целей "
+            "при помощи создания списка задач.",
+            tasks
         )
 
-    # Запускает процесс создания задачи
     def add(self, update: Update, context: CallbackContext):
         user_id = update.callback_query.from_user.id
 
         if len(self.model.get_all_tasks(user_id)) < 10:
             self.current_task['user_id'] = user_id
 
-            button = ReplyKeyboardMarkup([['/cancel']], resize_keyboard=True)
-
             update.callback_query.message.reply_text(
                 'Введите заголовок задачи',
-                reply_markup=button
             )
+            update.callback_query.edit_message_reply_markup(reply_markup=None)
 
             return self.TITLE
         else:
@@ -71,22 +75,9 @@ class TaskCommandController:
                 'Вы достигли лимита'
             )
 
-    # Отменяет процесс создания задачи
-    def cancel(self, update: Update, context: CallbackContext):
-        chat = update.effective_chat
-        tasks = self.model.get_all_tasks(user_id=update.effective_user['id'])
-        button_list = self.get_button_list(tasks=tasks)
-        reply_markup = InlineKeyboardMarkup([button_list])
-        context.bot.send_message(
-            chat_id=chat.id,
-            text='Добавление задачи отменено',
-            reply_markup=reply_markup
-        )
-        return ConversationHandler.END
-
-    # Помечает задачу как выполненную
     def done(self, update: Update, context: CallbackContext):
-        user_id = update.callback_query.from_user.id
+        query = update.callback_query
+        user_id = query.from_user.id
 
         tasks = self.model.get_all_tasks(user_id=user_id)
 
@@ -96,17 +87,18 @@ class TaskCommandController:
         ]
         reply_markup = InlineKeyboardMarkup([button_list])
 
-        update.callback_query.message.reply_text(
-            f"{format_task_list(tasks)}"
+        query.edit_message_text(
+            "Список всех задач:\n"
+            f"{format_task_list(tasks)}\n"
             "Выберите:",
             reply_markup=reply_markup
         )
 
         return self.STATUS
 
-    # Удаляет задачу
     def delete(self, update: Update, context: CallbackContext):
-        user_id = update.callback_query.from_user.id
+        query = update.callback_query
+        user_id = query.from_user.id
 
         tasks = self.model.get_all_tasks(user_id=user_id)
 
@@ -116,44 +108,37 @@ class TaskCommandController:
         ]
         reply_markup = InlineKeyboardMarkup([button_list])
 
-        update.callback_query.message.reply_text(
-            f"{format_task_list(tasks)}"
-            "Выберите:",
+        query.edit_message_text(
+            f"{format_task_list(tasks)}\nВыберите:",
             reply_markup=reply_markup
         )
 
         return self.DELETION
 
-    # Выводит список всех задач
     def list(self, update: Update, context: CallbackContext):
-        chat = update.effective_chat
-        user_id = update.effective_user.id
+        query = update.callback_query
+        user_id = query.from_user.id
         tasks = self.model.get_all_tasks(user_id=user_id)
+
         button_list = self.get_button_list(tasks=tasks)
         reply_markup = InlineKeyboardMarkup([button_list])
-        tasks = self.model.get_all_tasks(user_id)
+
         if tasks:
-            context.bot.send_message(
-                chat_id=chat.id,
-                text=format_task_list(tasks),
+            query.edit_message_text(
+                text=f"Список всех задач:\n\n{format_task_list(tasks)}",
+            )
+            query.edit_message_reply_markup(
                 reply_markup=reply_markup
             )
         else:
-            context.bot.send_message(
-                chat_id=chat.id,
-                text="У вас нет активных задач.\n\n"
-                     "Меню:",
+            query.edit_message_text(
+                text="У вас нет активных задач.\n\nМеню:",
+            )
+            query.edit_message_reply_markup(
                 reply_markup=reply_markup
             )
 
-    def help():
-        pass
 
-    def menu():
-        pass
-
-
-# Блок для приема параметров задач
 class TaskConversationHandler:
     def __init__(self, task_command_controller):
         self.task_command_controller = task_command_controller
@@ -210,6 +195,7 @@ class TaskConversationHandler:
                 task_id=task_id
             )
             query.answer()
+            query.edit_message_reply_markup(reply_markup=None)
             query.edit_message_text(
                 "Достижение: Задача помечена как 'Выполнена'!\n\n"
                 f"{format_task(updated_task)}"
@@ -282,11 +268,6 @@ class TaskConversationHandler:
                     self.task_command_controller.list,
                     pattern='^list_task$'
                 ),
-
-                CommandHandler(
-                    'cancel',
-                    self.task_command_controller.cancel
-                )
                 ],
 
             states={
@@ -308,8 +289,5 @@ class TaskConversationHandler:
                     self.task_deadline)],
             },
 
-            fallbacks=[CommandHandler(
-                'cancel',
-                self.task_command_controller.cancel
-            )],
+            fallbacks=[],
         )
